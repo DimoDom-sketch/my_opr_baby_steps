@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Не наследуем окружение вызывающего: иначе лаба уедет в чужой репозиторий.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# Разворачиваем РЯДОМ с репозиторием курса, а не в домашнем каталоге:
+# так лаба лежит там же, куда вы его скачали, и её видно.
+REPO="$(dirname "$HERE")"
+LAB="${1:-$(dirname "$REPO")/opr-lab01}"
+SHOP="$LAB/shop"
+
+command -v git >/dev/null || { echo "git не найден" >&2; exit 1; }
+PY=""
+for c in python3 python py; do
+  command -v "$c" >/dev/null 2>&1 || continue
+  "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3,8) else 1)' >/dev/null 2>&1 || continue
+  PY="$c"; break
+done
+[ -n "$PY" ] || { echo "Python 3.8+ не найден (пробовал python3, python, py)" >&2; exit 1; }
+
+if [[ -e "$LAB" ]]; then
+  echo "Каталог уже существует: $LAB" >&2
+  echo "Удалите его сами: rm -rf \"$LAB\"" >&2
+  echo "Или разверните в другой: make lab1 LAB1_DEST=/tmp/opr-lab01" >&2
+  echo "Без make (Git Bash на Windows): bash lab01-git/setup.sh /tmp/opr-lab01" >&2
+  exit 1
+fi
+
+mkdir -p "$SHOP"
+cd "$SHOP"
+git init -q
+git symbolic-ref HEAD refs/heads/main
+git config user.name "OPR Course"
+git config user.email "opr-course@example.invalid"
+# Иначе при core.autocrlf=true у студента файлы лабы уедут в CRLF
+git config core.autocrlf false
+git config core.eol lf
+git config commit.gpgsign false
+git config tag.gpgsign false
+
+cp "$HERE/fixture/base/"*.py .
+cp "$HERE/fixture/check.py" check.py
+chmod +x check.py
+printf '__pycache__/\n' > .gitignore
+git add .
+git commit -q -m "Начальная версия магазина"
+git tag start
+
+cp "$HERE/fixture/changed/"*.py .
+printf 'API_URL=http://localhost:8000\n' > .env.local
+printf 'DEBUG cart_id=42 subtotal=2000\n' > debug.log
+git add .
+
+echo "Готово: $SHOP"
+echo "Все изменения уже добавлены в индекс. Начните с git status."
+echo "Условие: $HERE/README.md"

@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Не наследуем окружение вызывающего: иначе лаба уедет в чужой репозиторий.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# Разворачиваем РЯДОМ с репозиторием курса, а не в домашнем каталоге:
+# так лаба лежит там же, куда вы его скачали, и её видно.
+REPO="$(dirname "$HERE")"
+LAB="${1:-$(dirname "$REPO")/opr-lab02}"
+SHOP="$LAB/shop"
+
+command -v git >/dev/null || { echo "git не найден" >&2; exit 1; }
+PY=""
+for c in python3 python py; do
+  command -v "$c" >/dev/null 2>&1 || continue
+  "$c" -c 'import sys; sys.exit(0 if sys.version_info >= (3,8) else 1)' >/dev/null 2>&1 || continue
+  PY="$c"; break
+done
+[ -n "$PY" ] || { echo "Python 3.8+ не найден (пробовал python3, python, py)" >&2; exit 1; }
+
+if [[ -e "$LAB" ]]; then
+  echo "Каталог уже существует: $LAB" >&2
+  echo "Удалите его сами: rm -rf \"$LAB\"" >&2
+  echo "Или разверните в другой: make lab2 LAB2_DEST=/tmp/opr-lab02" >&2
+  echo "Без make (Git Bash на Windows): bash lab02-git/setup.sh /tmp/opr-lab02" >&2
+  exit 1
+fi
+
+mkdir -p "$SHOP"
+cd "$SHOP"
+git init -q
+git symbolic-ref HEAD refs/heads/main
+git config user.name "OPR Course"
+git config user.email "opr-course@example.invalid"
+# Иначе при core.autocrlf=true у студента файлы лабы уедут в CRLF
+git config core.autocrlf false
+git config core.eol lf
+git config commit.gpgsign false
+git config tag.gpgsign false
+
+cp "$HERE/fixture/base/order.py" .
+cp "$HERE/fixture/base/money.py" .
+cp "$HERE/fixture/base/catalog.py" .
+cp "$HERE/fixture/base/check.py" .
+chmod +x check.py
+printf '__pycache__/\n' > .gitignore
+git add .
+git commit -q -m "Начальная версия расчёта заказа"
+BASE=$(git rev-parse HEAD)
+
+cp "$HERE/fixture/discount/order.py" order.py
+git add order.py
+git commit -q -m "Добавить процентную скидку"
+
+cp "$HERE/fixture/fix/money.py" money.py
+git add money.py
+git commit -q -m "Исправить формат отрицательных сумм"
+git reset -q --hard HEAD~1
+
+git switch -q -c feature/naming "$BASE"
+cp "$HERE/fixture/naming/catalog.py" catalog.py
+git add catalog.py
+git commit -q -m "Переименовать item_title в format_item"
+
+git switch -q -c feature/receipt "$BASE"
+cp "$HERE/fixture/receipt/receipt.py" receipt.py
+cp "$HERE/fixture/receipt/test_receipt.py" test_receipt.py
+git add receipt.py test_receipt.py
+git commit -q -m "Добавить сборку чека"
+
+git switch -q -c feature/shipping "$BASE"
+cp "$HERE/fixture/shipping/order.py" order.py
+git add order.py
+git commit -q -m "Добавить стоимость доставки"
+
+echo "Готово: $SHOP"
+echo "Текущая ветка: feature/shipping"
+echo "Ветки в работе: main, feature/naming, feature/receipt"
+echo "Условие: $HERE/README.md"
